@@ -7,6 +7,7 @@
 provide the client th ability to search for cities names and provide him the weather for that city
 ## Getting Started
 <!-- What are the steps that a user must take in order to build this app on their own machine and get it running? -->
+heroku link :https://city-exp.herokuapp.com/
 - The client needs to clone the repo from GitHub.
 - Then run npm install ro install al dependencies.
 - Provide the client with the .env file.
