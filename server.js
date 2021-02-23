@@ -3,11 +3,13 @@
 let express = require('express');
 const cors = require('cors');
 let superagent = require('superagent');
+const pg = require('pg');
 
 let app = express();
 app.use(cors());
 require('dotenv').config();
-
+// const client = new pg.Client(process.env.DATABASE_URL);
+const client = new pg.Client({ connectionString: process.env.DATABASE_URL,   ssl: { rejectUnauthorized: false } });
 const PORT = process.env.PORT;
 
 
@@ -15,35 +17,68 @@ app.get('/location', handelLocation);
 app.get("/weather", handleWeather);
 app.get('/parks', handleparks);
 app.get('*', handle404);
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////location//////////////////////////////////////////////////////////////////////////////
 function handelLocation(req, res) {
-    let searchQuery = req.query.city;
-    getLocationData(searchQuery, res);
+    try {
+        let searchQuery = req.query.city;
+        getLocationData(searchQuery, res);
 
-};
+    } catch (error) {
+        res.status(500).send('Sorry, something went wron' + error);
+    }
+}
 
 
 function getLocationData(searchQuery, res) {
-    let key = process.env.GEOCODE_API_KEY
-    let url = `https://us1.locationiq.com/v1/search.php?key=${key}&q=${searchQuery}&format=json`
-    superagent.get(url).then(data => {
-        try {
-            let longitude = data.body[0].lon;
-            let latitude = data.body[0].lat;
-            let displayName = data.body[0].display_name;
-            let responseObject = new Citylocation(searchQuery, displayName, latitude, longitude)
-            res.status(200).send(responseObject);
 
-        } catch (error) {
-            res.status(500).send(error);
+    let sqlQuery = "SELECT * FROM citylocation WHERE c_name = ($1) ";
+    let value = [searchQuery];
+    client.query(sqlQuery, value).then(data => {
+
+
+        if (data.rows.length === 0) {
+            const query = {
+                key: process.env.GEOCODE_API_KEY,
+                q: searchQuery,
+                limit: 1,
+                format: 'json'
+            }
+
+
+            let url = `https://us1.locationiq.com/v1/search.php`;
+            superagent.get(url).query(query).then(data => {
+                try {
+                    let longitude = data.body[0].lon;
+                    let latitude = data.body[0].lat;
+                    let displayName = data.body[0].display_name;
+                    let sqlQuery = `insert into citylocation(c_name,display_name, lat, lon) values ($1,$2,$3,$4)returning *`;
+                    let value = [searchQuery, displayName, latitude, longitude];
+                    client.query(sqlQuery, value).then(data => {
+                        console.log('data returned back from db ', data);
+                    });
+                    let responseObject = new Citylocation(searchQuery, displayName, latitude, longitude);
+                    res.status(200).send(responseObject);
+                } catch (error) {
+                    res.status(500).send(error);
+                }
+
+            }).catch(error => {
+                res.status(500).send("Cannot connect with the api " + error);
+
+            });
         }
-    }).catch(error => {
-        res.status(500).send('there was an error getting data from API' + error);
+        else {
+            let responseObject = new Citylocation(data.rows[0].c_name, data.rows[0].display_name, data.rows[0].lat, data.rows[0].lon);
+            res.status(200).send(responseObject);
+        }
 
+    }).catch(error => {
+        console.log('canoot data returned back from db in check function ', error);
     });
 
-};
 
+
+}
 
 
 function Citylocation(searchQuery, displayName, lat, lon) {
@@ -54,7 +89,7 @@ function Citylocation(searchQuery, displayName, lat, lon) {
 }
 
 
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////Weather//////////////////////////////////////////////////////////////////////
 
 function handleWeather(req, res) {
 
@@ -100,7 +135,7 @@ function CityWeather(forecast, time) {
     this.forecast = forecast;
     this.time = time;
 }
-///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////parks//////////////////////////////////////////////////////////////////
 function handleparks(req, res) {
 
     let lat = req.query.latitude;
@@ -135,11 +170,20 @@ function Park(element) {
 
 
 }
-
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 function handle404(req, res) {
     res.status(404).send('sorry , the page dose not exist....');
 }
 
-app.listen(PORT, () => {
-    console.log('the app is listining on port ' + PORT);
+// app.listen(PORT, () => {
+//     console.log('the app is listining on port ' + PORT);
+// });
+
+
+client.connect().then(() => {
+    app.listen(PORT, () => {
+        console.log('the app is listining on port ' + PORT);
+    });
+}).catch(error => {
+    console.log('an error occurred while connecting to database ' + error);
 });
