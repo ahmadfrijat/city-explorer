@@ -1,23 +1,39 @@
 'use strict'
 
+
+// Application Dependencies
+
 let express = require('express');
 const cors = require('cors');
 let superagent = require('superagent');
 const pg = require('pg');
 
+// Application Setup
+
 let app = express();
 app.use(cors());
+
+// Load environment variables from .env file
+
 require('dotenv').config();
 // const client = new pg.Client(process.env.DATABASE_URL);
 const client = new pg.Client({ connectionString: process.env.DATABASE_URL,   ssl: { rejectUnauthorized: false } });
 const PORT = process.env.PORT;
 
+// Route Definitions
 
 app.get('/location', handelLocation);
 app.get("/weather", handleWeather);
 app.get('/parks', handleparks);
+app.get('/movies', handlemovies);
+app.get('/yelp', handleYalps);
 app.get('*', handle404);
+
+
 /////////////////////////////////////////////////////////////////////location//////////////////////////////////////////////////////////////////////////////
+//////////handel function//////////
+
+
 function handelLocation(req, res) {
     try {
         let searchQuery = req.query.city;
@@ -27,6 +43,8 @@ function handelLocation(req, res) {
         res.status(500).send('Sorry, something went wron' + error);
     }
 }
+
+//////////get data function//////////
 
 
 function getLocationData(searchQuery, res) {
@@ -80,6 +98,8 @@ function getLocationData(searchQuery, res) {
 
 }
 
+//////////constructor//////////
+
 
 function Citylocation(searchQuery, displayName, lat, lon) {
     this.search_query = searchQuery;
@@ -90,6 +110,8 @@ function Citylocation(searchQuery, displayName, lat, lon) {
 
 
 /////////////////////////////////////////////////////////////////////////////Weather//////////////////////////////////////////////////////////////////////
+//////////handel function//////////
+
 
 function handleWeather(req, res) {
 
@@ -97,6 +119,8 @@ function handleWeather(req, res) {
     let log = req.query.longitude;
     getWeatherData(res, log, lat);
 }
+
+//////////get data function//////////
 
 
 function getWeatherData(res, lat, log) {
@@ -118,7 +142,7 @@ function getWeatherData(res, lat, log) {
                 let newDateTime = new Date(forecast[i].valid_date).toString();
                 let stringDate = newDateTime.split(" ").splice(0, 4).join(" ");
 
-                let responseObject = new CityWeather(forecast[i].weather.description, stringDate);
+                let responseObject = new Weather(forecast[i].weather.description, stringDate);
                 weatherArray.push(responseObject);
             }
             res.status(200).send(weatherArray);
@@ -131,17 +155,30 @@ function getWeatherData(res, lat, log) {
 
 }
 
-function CityWeather(forecast, time) {
+
+//////////constructor//////////
+
+
+function Weather(forecast, time) {
     this.forecast = forecast;
     this.time = time;
 }
+
+
 /////////////////////////////////////////////////////////////////////////////////parks//////////////////////////////////////////////////////////////////
+//////////handel function//////////
+
+
 function handleparks(req, res) {
 
     let lat = req.query.latitude;
     let log = req.query.longitude;
     getparkData(res, log, lat);
 }
+
+
+//////////get data function//////////
+
 
 function getparkData(res, lat, log) {
 
@@ -162,15 +199,104 @@ function getparkData(res, lat, log) {
 
 };
 
+
+//////////constructor//////////
+
+
 function Park(element) {
     this.name = element.name;
     this.address = element.address;
     this.fee = element.fee;
     this.description = element.description;
-
-
 }
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+/////////////////////////////////////////////////////////////////////////////////movies//////////////////////////////////////////////////////////////////
+//////////handel function//////////
+
+
+function handlemovies(request, response) {
+    let city = request.query.search_query;
+    // console.log(city)
+    getMoviesData(city)
+        .then((data) => {
+            response.status(200).send(data);
+        });
+}
+
+
+//////////get data function//////////
+
+
+function getMoviesData(city) {
+    const MOVIE_API_KEY = process.env.MOVIE_API_KEY;
+    const moviesUrl = `https://api.themoviedb.org/3/search/movie?api_key=${MOVIE_API_KEY}&language=en-US&query=${city}&page=1&include_adult=false`
+    return superagent.get(moviesUrl)
+        .then((moviesData) => {
+            // console.log(moviesData.body);
+            const movies = moviesData.body.results.map((data) => new Movies(data));
+            return movies;
+        });
+}
+
+
+//////////constructor//////////
+
+
+function Movies(data) {
+    this.title = data.title;
+    this.overview = data.overview;
+    this.average_votes = data.vote_average;
+    this.total_votes = data.vote_count;
+    this.image_url = `https://image.tmdb.org/t/p/w500/${data.poster_path}`;
+    this.popularity = data.popularity;
+    this.released_on = data.release_date;
+}
+
+
+
+/////////////////////////////////////////////////////////////////////////////////yelps//////////////////////////////////////////////////////////////////
+//////////handel function//////////
+
+
+function handleYalps(req, res) {
+    const city = req.query.search_query;
+    getYelpdata(city)
+        .then(data => res.status(200).json(data));
+}
+
+
+//////////get data function//////////
+
+
+function getYelpdata(city) {
+    let YELP_API_KEY = process.env.YELP_API_KEY;
+    let url = `https://api.yelp.com/v3/businesses/search?location=${city}`;
+    return superagent.get(url)
+        .set('Authorization', `Bearer ${YELP_API_KEY}`)
+        .then(data => {
+            console.log(data.body.businesses);
+            return data.body.businesses.map(val => {
+                return new Yelp(val);
+            });
+        });
+}
+
+
+//////////constructor//////////
+
+
+function Yelp(data) {
+    this.name = data.name;
+    this.image_url = data.image_url;
+    this.price = data.price;
+    this.rating = data.rating;
+    this.url = data.url;
+}
+
+
+
+////////////////////////////////////////////////////////////////////////////////////EXPRESS RENDERERS////////////////////////////////////////////////////////////////////
 function handle404(req, res) {
     res.status(404).send('sorry , the page dose not exist....');
 }
@@ -179,7 +305,7 @@ function handle404(req, res) {
 //     console.log('the app is listining on port ' + PORT);
 // });
 
-
+// Database Setup
 client.connect().then(() => {
     app.listen(PORT, () => {
         console.log('the app is listining on port ' + PORT);
